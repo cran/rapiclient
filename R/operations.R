@@ -9,9 +9,13 @@
 #'
 #' Create API object from Swagger specification
 #'
-#' @param url Api url
+#' @param url Api url (can be json or yaml format)
+#' @param config httr::config() curl options.
 #' @seealso See also \code{\link{get_operations}} and \code{\link{get_schemas}}
 #' @return API object
+#'
+#' @importFrom yaml yaml.load_file
+#'
 #' @examples
 #' \dontrun{
 #' # create operation and schema functions
@@ -20,11 +24,27 @@
 #' schemas <- get_schemas(api)
 #' }
 #' @export
-get_api <- function(url) {
-  api <- jsonlite::fromJSON(url, simplifyDataFrame = FALSE)
+get_api <- function(url, config = NULL) {
+  api = NULL
+  api <- tryCatch({
+      jsonlite::fromJSON(url, simplifyDataFrame = FALSE)
+  }, error=function(x) NULL)
+  if (is.null(api))
+      tryCatch({
+          if (startsWith(url, "http")) {
+              url0 <- url(url)
+              open(url0)
+              api <- yaml::yaml.load_file(url0)
+              close(url0)
+          } else {
+              api <- yaml::yaml.load_file(url)
+          }
+      }, error = function(x) NULL)
+  if (is.null(api))
+      stop("'url' does not appear to be JSON or YAML")
 
   # swagger element is required
-  if(is.null(api$swagger)) {
+  if (is.null(api$swagger)) {
     warning("Missing Swagger Specification version")
   }
   # Info element is required
@@ -34,7 +54,7 @@ get_api <- function(url) {
   # If the host is not included, the host serving the documentation is to be
   # used (including the port).
   if(is.null(api$host)) {
-    host <- httr::parse_url(url)$host
+    host <- httr::parse_url(url)$hostname
     if(!is.null(host)) {
       port <- httr::parse_url(url)$port
       if(!is.null(port)) {
@@ -61,6 +81,10 @@ get_api <- function(url) {
     warning("There is no paths element in the API specification")
   }
 
+  if (!(is.null(config) || inherits(config, "request")))
+    stop("'config' must be NULL or an instance of httr::config()")
+  api$config <- config
+
   class(api) <- c(.class_api, class(api))
   api
 }
@@ -86,7 +110,8 @@ get_operation_definitions <- function(api, path = NULL) {
     path_names <- path_names[grep(path, path_names)]
   }
   for(path_name in path_names) {
-    action_types <- c("post", "get", "delete", "put")
+    action_types <-
+      c("post", "patch", "get", "head", "delete", "put")
     # parameters may be defined on the path level
 
     for(action in intersect(names(api$paths[[path_name]]), action_types)) {
@@ -145,7 +170,7 @@ get_operation_definitions <- function(api, path = NULL) {
       ret <- c(ret, stats::setNames(list(operation), operation$operationId))
     }
   }
-  ret
+  stats::setNames(ret, trimws(names(ret)))
 }
 
 
@@ -225,17 +250,49 @@ get_operations <- function(api, .headers = NULL, path = NULL,
       return(url)
     }
 
+    get_config <- function() {
+      api$config
+    }
+
+    get_accept <- function(op_def) {
+      if (is.null(op_def$produces)) {
+        httr::accept_json()
+      } else {
+        httr::accept(op_def$produces)
+      }
+    }
 
     # function body
     if(op_def$action == "post") {
       tmp_fun <- function() {
         x <- eval(param_values)
-        request_json <- get_message_body(x)
+        request_json <- get_message_body(op_def, x)
+        consumes <- ifelse(
+            is.null(op_def$consumes), "application/json", op_def$consumes
+        )
         result <- httr::POST(
           url = get_url(x),
+          config = get_config(),
           body = request_json,
-          httr::content_type("application/json"),
-          httr::accept_json(),
+          httr::content_type(consumes),
+          get_accept(op_def),
+          httr::add_headers(.headers = .headers)
+        )
+        handle_response(result)
+      }
+    } else if(op_def$action == "patch") {
+      tmp_fun <- function() {
+        x <- eval(param_values)
+        request_json <- get_message_body(op_def, x)
+        consumes <- ifelse(
+            is.null(op_def$consumes), "application/json", op_def$consumes
+        )
+        result <- httr::PATCH(
+          url = get_url(x),
+          config = get_config(),
+          body = request_json,
+          httr::content_type(consumes),
+          get_accept(op_def),
           httr::add_headers(.headers = .headers)
         )
         handle_response(result)
@@ -243,12 +300,16 @@ get_operations <- function(api, .headers = NULL, path = NULL,
     } else if(op_def$action == "put") {
       tmp_fun <- function() {
         x <- eval(param_values)
-        request_json <- get_message_body(x)
+        request_json <- get_message_body(op_def, x)
+        consumes <- ifelse(
+            is.null(op_def$consumes), "application/json", op_def$consumes
+        )
         result <- httr::PUT(
           url = get_url(x),
+          config = get_config(),
           body = request_json,
-          httr::content_type("application/json"),
-          httr::accept_json(),
+          httr::content_type(consumes),
+          get_accept(op_def),
           httr::add_headers(.headers = .headers)
         )
         handle_response(result)
@@ -258,8 +319,21 @@ get_operations <- function(api, .headers = NULL, path = NULL,
         x <- eval(param_values)
         result <- httr::GET(
           url = get_url(x),
+          config = get_config(),
           httr::content_type("application/json"),
-          httr::accept_json(),
+          get_accept(op_def),
+          httr::add_headers(.headers = .headers)
+        )
+        handle_response(result)
+      }
+    } else if(op_def$action == "head") {
+      tmp_fun <- function() {
+        x <- eval(param_values)
+        result <- httr::HEAD(
+          url = get_url(x),
+          config = get_config(),
+          httr::content_type("application/json"),
+          get_accept(op_def),
           httr::add_headers(.headers = .headers)
         )
         handle_response(result)
@@ -269,8 +343,9 @@ get_operations <- function(api, .headers = NULL, path = NULL,
         x <- eval(param_values)
         result <- httr::DELETE(
           url = get_url(x),
+          config = get_config(),
           httr::content_type("application/json"),
-          httr::accept_json(),
+          get_accept(op_def),
           httr::add_headers(.headers = .headers)
         )
         handle_response(result)
@@ -294,15 +369,45 @@ get_operations <- function(api, .headers = NULL, path = NULL,
 
 #' Message body
 #'
-#' Transform a list to http request message body
+#' Transform a list of operation arguments to an http request message
+#' body. This method searches for parameters with swagger / openAPI
+#' specification `in: body` or `in: formData`. `body` parameters are
+#' expected to be R vectors or lists, and are transformed to JSON
+#' using `jsonlite::toJSON()`. `formData` parameters are treated as
+#' is, so must be specified (e.g., using `httr::upload_file()`) by the
+#' caller. Interpretation of `formData` parameters require that the
+#' `op_def` includes `consumes: multipart/form-data`.
 #'
-#' @param x A list
+#' @param op_def A list representation of the swagger / openAPI
+#'     description of the operation.
+#'
+#' @param x A list representation of the operation arguments provided
+#'     by the user.
+#'
+#' @return A JSON character representation (for `body`) or list of
+#'     objects (for `formData`) representing the parameters `x`.
+#'
 #' @keywords internal
-get_message_body <- function(x) {
-  json <- jsonlite::toJSON(x, auto_unbox = TRUE, pretty = TRUE)
+get_message_body <- function(op_def, x) {
+  formData <- identical(op_def$consumes, "multipart/form-data")
+  parameters <- op_def$parameters
+  parameter_names <- vapply(parameters, function(parameter) {
+    if (parameter[["in"]] %in% c("body", "formData")) {
+      parameter[["name"]]
+    } else NA_character_
+  }, character(1))
+  parameter_names <- parameter_names[!is.na(parameter_names)]
+  x <- x[ names(x) %in% parameter_names ]
+  if (formData) {
+    json <- x
+  } else {
+    if (length(x) == 1L)
+      x <- x[[1]]
+    json <- jsonlite::toJSON(x, auto_unbox = TRUE, pretty = TRUE)
+  }
 
   if(getOption("rapiclient.log_request", default = FALSE)) {
-    cat(json, "\n",
+    cat(if (formData) "formData" else json, "\n",
         file = file.path(
           getOption("rapiclient.log_request_path", "rapiclient_log.json")
         ), append = FALSE
