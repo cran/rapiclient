@@ -1,7 +1,7 @@
 Package: rapiclient
 Type: Package
 Title: Dynamic OpenAPI/Swagger Client
-Version: 0.1.6
+Version: 0.1.8
 Authors@R: c(
   person("Darko", "Bergant", , "darko.bergant@gmail.com", "aut"),
   person("Marcel", "Ramos", , "marcel.ramos@sph.cuny.edu", c("cre", "ctb"),
@@ -20,10 +20,10 @@ Depends: R (>= 3.3.0)
 License: MIT + file LICENSE
 Imports: jsonlite, httr, tools, yaml
 Encoding: UTF-8
-RoxygenNote: 7.3.1
+RoxygenNote: 7.3.2
 Suggests: testthat
 NeedsCompilation: no
-Packaged: 2024-08-20 18:29:40 UTC; mr148
+Packaged: 2024-09-30 16:59:49 UTC; mr148
 Author: Darko Bergant [aut],
   Marcel Ramos [cre, ctb] (<https://orcid.org/0000-0002-3242-0582>),
   Alexandru Mahmoud [ctb],
@@ -31,4 +31,4 @@ Author: Darko Bergant [aut],
   Martin Morgan [ctb]
 Maintainer: Marcel Ramos <marcel.ramos@sph.cuny.edu>
 Repository: CRAN
-Date/Publication: 2024-08-21 11:40:02 UTC
+Date/Publication: 2024-09-30 21:10:02 UTC

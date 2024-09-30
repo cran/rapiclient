@@ -1,3 +1,23 @@
+# rapiclient 0.1.8
+
+## User visible changes
+
+* When present, combine operation parameters and api path-level parameters, 
+where the former take precedence (@almahmoud, #23)
+
+# rapiclient 0.1.7
+
+## User visible changes
+
+* `get_api` now has an `ext` argument for API urls that are missing a file
+extension; this ensures that the file is properly parsed (@almahmoud, #26).
+
+## Bug fixes and minor improvements
+
+* `config` argument in `get_api` is passed along to the `GET` call for
+non-public APIs that require a token (@almahmoud, #26).
+* `get_api` handles both URLs and files (either `json` or `yml`)
+
 # rapiclient 0.1.6
 
 ## User visible changes

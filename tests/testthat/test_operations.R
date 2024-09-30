@@ -1,6 +1,7 @@
 test_that("API info, swagger, etc. elements are checked", {
     with_mocked_bindings(
-        get_api_json = function(...) {
+        fetch_content = function(...) { "" },
+        read_api_json = function(...) {
             list(swagger = NULL, info = TRUE, paths = "ok")
         },
         expect_warning(
@@ -12,7 +13,8 @@ test_that("API info, swagger, etc. elements are checked", {
     )
 
     with_mocked_bindings(
-        get_api_json = function(...) {
+        fetch_content = function(...) { "" },
+        read_api_json = function(...) {
             list(info = NULL, swagger = TRUE, paths = "ok")
         },
         expect_warning(
@@ -24,7 +26,8 @@ test_that("API info, swagger, etc. elements are checked", {
     )
 
     with_mocked_bindings(
-        get_api_json = function(...) {
+        fetch_content = function(...) { "" },
+        read_api_json = function(...) {
             list(info = TRUE, swagger = TRUE, paths = NULL)
         },
         expect_warning(
@@ -36,7 +39,8 @@ test_that("API info, swagger, etc. elements are checked", {
     )
 
     with_mocked_bindings(
-        get_api_json = function(...) {
+        fetch_content = function(...) { "" },
+        read_api_json = function(...) {
             list(info = TRUE, swagger = TRUE, paths = "ok")
         },
         expect_identical(
@@ -48,7 +52,8 @@ test_that("API info, swagger, etc. elements are checked", {
     )
 
     with_mocked_bindings(
-        get_api_json = function(...) {
+        fetch_content = function(...) { "" },
+        read_api_json = function(...) {
             list(info = TRUE, swagger = TRUE, paths = "ok")
         },
         expect_error(
@@ -180,3 +185,58 @@ test_that("*_for_status works", {
         "OK \\(HTTP 200\\)\\."
     )
 })
+
+test_that("get_operation_definitions works", {
+    api <- list(paths = list(`/api/v1/namespaces` = list(
+        get = list(
+            parameters  = list(list(
+                uniqueItems = TRUE,
+                type = "boolean",
+                description =
+                    "allowWatchBookmarks requests watch events",
+                name = "allowWatchBookmarks",
+                `in` = "query"
+            ))
+        ),
+        parameters = list(
+            list(
+                uniqueItems = TRUE, type = "string",
+                description = "If 'true', then the output is pretty printed.",
+                name = "pretty", `in` = "query"
+            )
+        )
+    )))
+    ops <- get_operation_definitions(api, path = "/api/v1/namespaces")
+    expect_identical(
+        length(ops$api_v1_namespaces$parameters), 2L
+    )
+    expect_identical(
+        ops,
+        list(
+            api_v1_namespaces =
+                list(parameters = list(
+                    list(
+                        uniqueItems = TRUE,
+                        type = "boolean",
+                        description =
+                            "allowWatchBookmarks requests watch events",
+                        name = "allowWatchBookmarks",
+                        `in` = "query"
+                    ),
+                    list(
+                        uniqueItems = TRUE,
+                        type = "string",
+                        description =
+                            "If 'true', then the output is pretty printed.",
+                        name = "pretty",
+                        `in` = "query"
+                    )
+                ),
+            path = "/api/v1/namespaces",
+            action = "get",
+            operationId = "api_v1_namespaces")
+        )
+    )
+})
+
+

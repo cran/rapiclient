@@ -5,28 +5,33 @@
 .class_schema <- "rapi_schema"
 .class_schema_function <- "rapi_schema_function"
 
-get_api_yaml <- function(url) {
-    if (startsWith(url, "http")) {
-        url0 <- url(url)
-        open(url0)
-        on.exit(close(url0))
-        yaml::yaml.load_file(url0)
-    } else {
-        yaml::yaml.load_file(url)
-    }
+fetch_content <- function(url, config = NULL) {
+    if (!startsWith(url, "http") && file.exists(url))
+        return(readLines(url, encoding = "UTF-8"))
+    response <- httr::GET(url, config = config)
+    httr::stop_for_status(response, "fetch_content_url")
+    httr::content(response, as = "text", encoding = "UTF-8")
 }
 
-get_api_json <- function(url) {
-    jsonlite::fromJSON(url, simplifyDataFrame = FALSE)
+read_api_yaml <- function(apitext) {
+    yaml::yaml.load(apitext)
+}
+
+read_api_json <- function(apitext) {
+    jsonlite::fromJSON(apitext, simplifyDataFrame = FALSE)
 }
 
 #' Get API
 #'
 #' Create API object from Swagger specification
 #'
-#' @param url Api url (can be json or yaml format)
+#' @param url API URL or file (can be json or yaml format)
 #'
 #' @param config httr::config() curl options.
+#'
+#' @param ext the file extension of the API file (either 'yaml' or 'json'). By
+#'   default, it is obtained from the URL with `tools::file_ext` and should
+#'   be provided when the file URL is missing an extension.
 #'
 #' @seealso See also \code{\link{get_operations}} and \code{\link{get_schemas}}
 #'
@@ -41,16 +46,21 @@ get_api_json <- function(url) {
 #' schemas <- get_schemas(api)
 #' }
 #' @export
-get_api <- function(url, config = NULL) {
-    ext <- tolower(tools::file_ext(url))
+get_api <- function(url, config = NULL, ext) {
+    if (missing(ext))
+        ext <- tolower(tools::file_ext(url))
     FUN <- switch(
         ext,
         yml =,
-        yaml = get_api_yaml,
-        json = get_api_json,
-        stop("'url' does not appear to be JSON or YAML")
+        yaml = read_api_yaml,
+        json = read_api_json,
+        stop(
+            "'url' does not appear to be JSON or YAML.",
+            " If format is known, provide 'ext' as input."
+        )
     )
-    api <- FUN(url)
+    apitext <- fetch_content(url, config = config)
+    api <- FUN(apitext)
 
   # swagger element is required
   if (is.null(api$swagger)) {
@@ -98,6 +108,10 @@ get_api <- function(url, config = NULL) {
   api
 }
 
+.get_names <- function(list) {
+  vapply(list, `[[`, character(1L), "name")
+}
+
 #' Get Operations Definitions
 #'
 #' Get a list of operations definitions from API specification
@@ -137,6 +151,13 @@ get_operation_definitions <- function(api, path = NULL) {
       # that situation as well.
       if(is.null(operation$parameters) || length(operation$parameters)==0) {
         operation$parameters <- api$paths[[path_name]]$parameters
+      } else {
+        ## check names in operations parameters
+        name_o_params <- .get_names(operation$parameters)
+        name_api_params <- .get_names(api$paths[[path_name]]$parameters)
+        keep_idx <- !duplicated(c(name_o_params, name_api_params))
+        operation$parameters <-
+          c(operation$parameters, api$paths[[path_name]]$parameters)[keep_idx]
       }
 
       # get referenced parameters (when parameter has $ref = #/parameters/...)
@@ -337,6 +358,8 @@ get_message_body <- function(op_def, body, auto_unbox = TRUE) {
     } else {
         ## unbox?
         name <- vapply(op_def$parameters, `[[`, character(1), "name")
+        ## match body names first
+        body <- body[names(body) %in% name]
         type <- vapply(op_def$parameters, function(elt) {
             type <- elt$type
             if (is.null(type)) {
@@ -346,7 +369,8 @@ get_message_body <- function(op_def, body, auto_unbox = TRUE) {
                 type
             }
         }, character(1))
-        body <- body[names(body) %in% name]
+        if (identical(length(body), 1L))
+            body <- body[[1L]]
         if (is.null(body) || all(is.na(body)) || !length(body)) {
             json <- structure("{}", class = "json")
         } else {
@@ -354,8 +378,6 @@ get_message_body <- function(op_def, body, auto_unbox = TRUE) {
                 idx <- match(nm, name)
                 if (type[idx] %in% c("string", "number", "integer", "boolean"))
                     body[[nm]] <- jsonlite::unbox(body[[nm]])
-                else if (identical(length(body), 1L))
-                    body <- body[[nm]]
             }
             json <- jsonlite::toJSON(
                 body, pretty = TRUE, auto_unbox = auto_unbox
